@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dual Smart PowerStrip Dashboard</title>
+    <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --accent-color: #38bdf8;
+            --danger-color: #f43f5e;
+            --text-color: #f8fafc;
+        }
+        body { font-family: 'Pretendard', sans-serif; background: var(--bg-color); color: var(--text-color); padding: 20px; text-align: center; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 800px; margin: 0 auto; }
+        .card { background: var(--card-bg); backdrop-filter: blur(8px); border-radius: 20px; padding: 20px; border: 1px solid rgba(255, 255, 255, 0.1); }
+        .full { grid-column: span 2; }
+        .current-val { font-size: 3.5rem; color: var(--accent-color); font-weight: bold; }
+        .badge { padding: 5px 15px; border-radius: 50px; font-size: 0.9rem; font-weight: bold; }
+        .badge-on { background: #10b981; }
+        .badge-off { background: #475569; }
+        .badge-trip { background: var(--danger-color); animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        button { width: 100%; padding: 15px; border-radius: 12px; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.2s; }
+        .btn-on { background: #10b981; color: white; }
+        .btn-off { background: #475569; color: white; }
+        button:disabled { opacity: 0.3; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <h1 style="margin-bottom: 30px;">IoT 듀얼 스마트 멀티탭</h1>
+    
+    <div class="grid">
+        <div class="card full">
+            <div style="display:flex; justify-content: space-between; align-items: center;">
+                <span>실시간 총 전류량</span>
+                <span id="conn-badge" class="badge badge-off" style="color:white">연결 중...</span>
+            </div>
+            <div class="current-val"><span id="curr-text">0.00</span> A</div>
+            <div id="trip-alert" style="display:none; color:var(--danger-color); font-weight:bold; margin-top:10px;">⚠️ 과부하 차단: 부하를 제거하면 자동 복구됩니다</div>
+        </div>
+
+        <div class="card">
+            <h3>서보 1 (채널 0)</h3>
+            <div id="s1-status" class="badge badge-on">ON</div>
+            <button class="btn-on" onclick="sendCmd('servo1', 'on')">ON</button>
+            <button class="btn-off" onclick="sendCmd('servo1', 'off')">OFF</button>
+        </div>
+
+        <div class="card">
+            <h3>서보 2 (채널 1)</h3>
+            <div id="s2-status" class="badge badge-on">ON</div>
+            <button class="btn-on" onclick="sendCmd('servo2', 'on')">ON</button>
+            <button class="btn-off" onclick="sendCmd('servo2', 'off')">OFF</button>
+        </div>
+
+        <div class="card full">
+            <canvas id="chart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+        const STATUS_TOPIC = 'yujun_powerstrip/status';
+        const CTRL_PREFIX = 'yujun_powerstrip/control/';
+
+        const ctx = document.getElementById('chart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: '전류 (A)', data: [], borderColor: '#38bdf8', tension: 0.4, fill: true, backgroundColor: 'rgba(56,189,248,0.1)' }] },
+            options: { responsive: true, scales: { y: { beginAtZero: true, max: 3.0 } }, animation: false, plugins: { legend: { display: false } } }
+        });
+
+        client.on('connect', () => {
+            document.getElementById('conn-badge').innerText = '온라인';
+            document.getElementById('conn-badge').className = 'badge badge-on';
+            client.subscribe(STATUS_TOPIC);
+        });
+
+        let msgCount = 0; // 메시지 카운터 추가
+
+        client.on('message', (topic, message) => {
+            if (topic === STATUS_TOPIC) {
+                const data = JSON.parse(message.toString());
+                const val = data.current;
+                const statusS1 = data.s1;
+                const statusS2 = data.s2;
+                const isTripped = data.tripped;
+
+                document.getElementById('curr-text').innerText = val.toFixed(2);
+                
+                // 상태 업데이트 (ON/OFF/TRIPPED)
+                const s1Badge = document.getElementById('s1-status');
+                const s2Badge = document.getElementById('s2-status');
+                
+                s1Badge.innerText = statusS1;
+                s1Badge.className = 'badge ' + (statusS1 === 'ON' ? 'badge-on' : 'badge-off');
+                s2Badge.innerText = statusS2;
+                s2Badge.className = 'badge ' + (statusS2 === 'ON' ? 'badge-on' : 'badge-off');
+
+                if (isTripped) {
+                    s1Badge.className = 'badge badge-trip';
+                    s2Badge.className = 'badge badge-trip';
+                    document.getElementById('trip-alert').style.display = 'block';
+                    document.querySelectorAll('button').forEach(b => b.disabled = true);
+                } else {
+                    document.getElementById('trip-alert').style.display = 'none';
+                    document.querySelectorAll('button').forEach(b => b.disabled = false);
+                }
+
+                // 그래프 업데이트 (5초 단위로 시간 표시)
+                msgCount++;
+                const timeLabel = (msgCount % 5 === 0) ? new Date().toLocaleTimeString() : '';
+                chart.data.labels.push(timeLabel);
+                chart.data.datasets[0].data.push(val);
+                
+                if (chart.data.labels.length > 30) {
+                    chart.data.labels.shift();
+                    chart.data.datasets[0].data.shift();
+                }
+                chart.update();
+            }
+        });
+
+        function sendCmd(servo, cmd) {
+            client.publish(CTRL_PREFIX + servo, cmd);
+        }
+    </script>
+</body>
+</html>
