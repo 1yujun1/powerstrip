@@ -63,7 +63,7 @@ static const char *TAG = "IOT_STRIP_V5";
 #define LED2_PIN 19
 #define BUZZER_PIN 27
 
-#define OVER_CURRENT_LIMIT 2.0
+#define OVER_CURRENT_LIMIT 2.0 // 전류 제한
 #define STABLE_CHECK_TIME_MS 5000
 
 // 상태 변수
