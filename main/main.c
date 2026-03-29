@@ -28,8 +28,8 @@ static const char *TAG = "IOT_STRIP_V5";
 #define WIFI_EAP_USERNAME "사용자아이디" // 내부 식별자
 #define WIFI_EAP_PASSWORD "비밀번호"
 #else
-#define WIFI_SSID "iptime2.4G"
-#define WIFI_PASS "86894925"
+#define WIFI_SSID "" // wifi ssid,비번 넣기
+#define WIFI_PASS ""
 #endif
 
 #define MQTT_BROKER "mqtt://broker.hivemq.com"
